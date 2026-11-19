@@ -8830,18 +8830,24 @@ impl<'db> Binding<'db> {
         &self,
         binding: &CallableBinding<'db>,
         prefix_len: usize,
-    ) -> impl Iterator<Item = usize> {
+    ) -> Vec<usize> {
+        let bound_argument_offset = usize::from(binding.bound_type.is_some());
+
         self.argument_matches
             .iter()
-            .skip(usize::from(binding.bound_type.is_some()))
             .enumerate()
-            .filter_map(move |(argument_index, argument_matches)| {
+            .filter_map(|(matched_argument_index, argument_matches)| {
+                if matched_argument_index < bound_argument_offset {
+                    return None;
+                }
+
                 argument_matches
                     .parameters
                     .iter()
                     .any(|parameter| parameter.index >= prefix_len)
-                    .then_some(argument_index)
+                    .then_some(matched_argument_index - bound_argument_offset)
             })
+            .collect()
     }
 
     /// Returns the specialized wrapped-call parameter type for a forwarded argument.
@@ -8872,9 +8878,8 @@ impl<'db> Binding<'db> {
         let callable = paramspec_value.to_callable_type(db, env)?;
 
         let (prefix, _) = self.signature.parameters().as_paramspec_with_prefix()?;
-        let paramspec_argument_indices: Vec<_> = self
-            .paramspec_call_argument_indices(binding, prefix.len())
-            .collect();
+        let paramspec_argument_indices =
+            self.paramspec_call_argument_indices(binding, prefix.len());
         let sub_argument_index = paramspec_argument_indices
             .iter()
             .position(|paramspec_argument_index| *paramspec_argument_index == argument_index)?;
@@ -9353,10 +9358,14 @@ impl<'db> Binding<'db> {
 
         let mut return_type_solutions: FxHashMap<BoundTypeVarIdentity<'db>, Type<'db>> =
             FxHashMap::default();
-        let inferable = generic_context.inferable_typevars(db);
         let return_bounds = call_expression_tcx.expected_type().map(|expected| {
             self.unspecialized_return_type(db)
-                .assignable_solutions_for_argument_context(db, env, expected, inferable)
+                .assignable_solutions_for_argument_context(
+                    db,
+                    env,
+                    expected,
+                    generic_context.inferable_typevars(db),
+                )
         });
         if let Some(path_bounds) = return_bounds {
             let solutions = path_bounds.solve_for_argument_context(db, env, constraints);
@@ -9545,7 +9554,6 @@ impl<'db> Binding<'db> {
         // create multiple instances of a single typevar identity with different
         // bounds/constraints. We should reconcile the invariants expected by the constraint solver
         // with those actually enforced by our typevar representation.
-        let call = CallInference::new(db, env, self, arguments, call_expression_tcx);
         let constraints = &ConstraintSetBuilder::new();
         let parameters = self.signature.parameters();
 
@@ -9565,7 +9573,8 @@ impl<'db> Binding<'db> {
             return;
         }
 
-        let inferred = call.infer(constraints);
+        let inferred =
+            CallInference::new(db, env, self, arguments, call_expression_tcx).infer(constraints);
 
         let mut checker = ArgumentTypeChecker::new(
             db,
