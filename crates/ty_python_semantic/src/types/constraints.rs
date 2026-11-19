@@ -2044,7 +2044,7 @@ impl<'db> UpperBound<'db> {
                 env,
                 clause,
                 inferable,
-                TypeVarEvaluation::LazyPreservingExclusions,
+                TypeVarEvaluation::LazyForSolver,
                 ConstraintProvenance::INFERRED,
             )
         };
@@ -5478,13 +5478,7 @@ mod tests {
             Some(TypeVarVariance::Invariant),
             Some(TypeVarDefaultEvaluation::Eager(Type::TypeVar(metadata))),
         );
-        let u = BoundTypeVarInstance::new(
-            db,
-            declaration,
-            u.binding_context(db),
-            u.paramspec_attr(db),
-            u.freshness(db),
-        );
+        let u = u.with_typevar(db, declaration);
         let actual_bound = KnownClass::List.to_specialized_instance(db, &env, &[Type::TypeVar(u)]);
         let mut storage = ConstraintSetStorage::default();
         let data = AtomicConstraint::ConcreteUpper(ConcreteUpperBound::new(
@@ -5541,13 +5535,7 @@ mod tests {
                 Some(TypeVarVariance::Invariant),
                 default,
             );
-            let u = BoundTypeVarInstance::new(
-                db,
-                declaration,
-                u.binding_context(db),
-                u.paramspec_attr(db),
-                u.freshness(db),
-            );
+            let u = u.with_typevar(db, declaration);
             let mut storage = ConstraintSetStorage::default();
             let data = AtomicConstraint::TypeVarRange(TypeVarRangeBound::new(
                 db,
