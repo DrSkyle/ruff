@@ -4312,11 +4312,14 @@ impl<'db> CandidateSolutions<'db> {
         }
         .filter(|candidate| !candidate.has_provisional_marker(db, env));
 
-        // Prefer the declared candidate when it is mutually assignable with the inferred
-        // candidate. Otherwise, prefer the inferred candidate.
+        // Only prefer the declared candidate if the context supplies a lower bound (an
+        // invariant or contravariant use). For example, `list[Any]` constrains `list[T]` in
+        // both directions, but `Sequence[Any]` only supplies an upper bound, so we keep
+        // the inferred element type if it fits.
         let candidates = match (inferred, declared) {
             (Some(inferred), Some(declared))
                 if prefer_declared
+                    && path_bound.declared_lower.is_some()
                     && inferred.is_assignable_to(db, env, declared)
                     && declared.is_assignable_to(db, env, inferred) =>
             {

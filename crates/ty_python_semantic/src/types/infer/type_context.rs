@@ -10,8 +10,8 @@ use crate::{Db, ProgramEnvironment};
 pub(crate) enum TypeContextKind {
     /// A concrete expected type, whether explicitly declared, or inferred through previous assignments.
     Expected {
-        /// Whether the type context should provide a solver preference in the case that the
-        /// declared and inferred solutions are mutually assignable.
+        /// Whether the solver may prefer a declared solution over a mutually assignable
+        /// inferred one for non-covariant type parameters.
         prefer: bool,
     },
 

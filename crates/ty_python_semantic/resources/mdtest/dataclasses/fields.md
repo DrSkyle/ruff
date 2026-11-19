@@ -300,9 +300,9 @@ When a field is annotated with a union type, the `field(..)` call is inferred wi
 type context, so that a single `Field[..]` specialization is inferred, instead of e.g.
 `Field[str] | Field[None]`. This ensures that the field's metadata can be accurately captured.
 
-For the `values` field, the `field(..)` call is inferred with a narrower `Field[list[int]]`
-specialization due to the default factory argument, but the declared type is what determines the
-constructor signature, so lists of strings are still allowed.
+The default factory can determine the type argument: `returns_any` gives `Field[Any]`, and
+`lambda: [1]` gives `Field[list[int]]`. The annotations still determine the constructor signature,
+so lists of strings are allowed for `values`.
 
 ```py
 from dataclasses import dataclass, field
@@ -314,7 +314,7 @@ def returns_any() -> Any:
 @dataclass
 class Entry:
     value: str | None = field(default_factory=returns_any, kw_only=True)
-    reveal_type(value)  # revealed: dataclasses.Field[str | None]
+    reveal_type(value)  # revealed: dataclasses.Field[Any]
 
     values: list[int] | list[str] = field(default_factory=lambda: [1], kw_only=True)
     reveal_type(values)  # revealed: dataclasses.Field[list[int]]

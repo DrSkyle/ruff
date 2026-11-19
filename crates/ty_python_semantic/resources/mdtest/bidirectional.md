@@ -838,17 +838,17 @@ A missing annotation does not supply type context for a return or argument expre
 ```py
 from ty_extensions._internal import Unknown
 
-def identity[T](x: T) -> T:
-    return x
+def singleton[T](x: T) -> list[T]:
+    return [x]
 
 def unannotated(x):
-    return reveal_type(identity(1))  # revealed: Literal[1]
+    return reveal_type(singleton(1))  # revealed: list[int]
 
-def annotated(x: Unknown) -> Unknown:
-    return reveal_type(identity(1))  # revealed: Unknown
+def annotated(x: list[Unknown]) -> list[Unknown]:
+    return reveal_type(singleton(1))  # revealed: list[Unknown]
 
-unannotated(reveal_type(identity(1)))  # revealed: Literal[1]
-annotated(reveal_type(identity(1)))  # revealed: Unknown
+unannotated(reveal_type(singleton(1)))  # revealed: list[int]
+annotated(reveal_type(singleton(1)))  # revealed: list[Unknown]
 ```
 
 A generic call in a bare `Final` initializer infers its return type from its argument.
@@ -856,42 +856,43 @@ A generic call in a bare `Final` initializer infers its return type from its arg
 ```py
 from typing import Final
 
+def identity[T](x: T) -> T:
+    return x
+
 ONE: Final = reveal_type(identity(1))  # revealed: Literal[1]
 ```
 
-A call through an unannotated parameter supplies no expected type for its arguments. A callable with
-a parameter annotated as `Any` supplies `Any` as context.
+A call through an unannotated parameter supplies no expected type for its arguments:
 
 ```py
 from collections.abc import Callable
 from typing import Any
 
-def call(sink, typed_sink: Callable[[Any], None]):
-    sink(reveal_type(identity(1)))  # revealed: Literal[1]
-    typed_sink(reveal_type(identity(1)))  # revealed: Any
+def call(sink, typed_sink: Callable[[list[Any]], None]):
+    sink(reveal_type(singleton(1)))  # revealed: list[int]
+    typed_sink(reveal_type(singleton(1)))  # revealed: list[Any]
 ```
 
 A generator without a return annotation leaves the operands of `yield` and `yield from` to
-inference. An explicit return annotation supplies its declared element type, including `Any` or
-`Unknown`.
+inference. With a return annotation, the declared element type provides context for both forms:
 
 ```py
 from collections.abc import Iterator
 
-def singleton[T](x: T) -> list[T]:
-    return [x]
+def batches[T](x: T) -> Iterator[list[T]]:
+    yield [x]
 
 def values():
-    yield reveal_type(identity(1))  # revealed: Literal[1]
-    yield from reveal_type(singleton(1))  # revealed: list[int]
+    yield reveal_type(singleton(1))  # revealed: list[int]
+    yield from reveal_type(batches(1))  # revealed: Iterator[list[int]]
 
-def annotated_values() -> Iterator[Any]:
-    yield reveal_type(identity(1))  # revealed: Any
-    yield from reveal_type(singleton(1))  # revealed: list[Any]
+def annotated_values() -> Iterator[list[Any]]:
+    yield reveal_type(singleton(1))  # revealed: list[Any]
+    yield from reveal_type(batches(1))  # revealed: Iterator[list[Any]]
 
-def unknown_values() -> Iterator[Unknown]:
-    yield reveal_type(identity(1))  # revealed: Unknown
-    yield from reveal_type(singleton(1))  # revealed: list[Unknown]
+def unknown_values() -> Iterator[list[Unknown]]:
+    yield reveal_type(singleton(1))  # revealed: list[Unknown]
+    yield from reveal_type(batches(1))  # revealed: Iterator[list[Unknown]]
 ```
 
 ## Upper-bound type context
@@ -935,12 +936,13 @@ def _(value: Any):
     reveal_type(bounded_consumer(consumer(value)))  # revealed: (Any | int, /) -> None
 ```
 
-However, it does not restrict the range of a gradual declared type:
+An expected `Sequence[Any]` neither restricts a gradual argument nor widens an argument whose
+element type is known:
 
 ```py
 def _[T: int](gradual: Sequence[Any], values: Sequence[T]):
     x1: Sequence[Any] = reveal_type(bounded_sequence(gradual))  # revealed: Sequence[Any]
-    x2: Sequence[Any] = reveal_type(bounded_sequence(values))  # revealed: Sequence[Any]
+    x2: Sequence[Any] = reveal_type(bounded_sequence(values))  # revealed: Sequence[T@_]
 ```
 
 The argument of a callable is narrowed based on outer type context:
@@ -984,7 +986,8 @@ def _(value: Any):
     reveal_type(annotated(1))  # revealed: list[int]
 ```
 
-As well as through nested `TypedDict` literals and constructor calls:
+A `TypedDict` field annotation does not override the type inferred from the argument to `identity`,
+whether the dictionary is written as a literal or constructed with `dict`:
 
 ```py
 def identity[T](value: T) -> T:
@@ -992,10 +995,10 @@ def identity[T](value: T) -> T:
 
 def _(value: Any):
     payload({"value": reveal_type(identity(value))})  # revealed: Any
-    literal: Payload = {"value": reveal_type(identity(value))}  # revealed: int
+    literal: Payload = {"value": reveal_type(identity(value))}  # revealed: Any
 
     payload(dict(value=reveal_type(identity(value))))  # revealed: Any
-    constructed: Payload = dict(value=reveal_type(identity(value)))  # revealed: int
+    constructed: Payload = dict(value=reveal_type(identity(value)))  # revealed: Any
 ```
 
 ## Upper-bound context without inference evidence
@@ -1466,8 +1469,9 @@ def _():
 
 ## Declared type preference
 
-We prefer the declared solution of a given type variable if it is mutually assignable with the
-inferred solution.
+In a covariant position, a declared type is an upper bound on the inferred type. Even when the two
+are mutually assignable because one is `Any`, the call keeps the type inferred from the argument.
+The annotated binding can still have the declared type:
 
 ```py
 from typing import Any, reveal_type
@@ -1479,14 +1483,14 @@ def _(dynamic: Any, number: int):
     reveal_type(identity(number))  # revealed: int
     reveal_type(identity(dynamic))  # revealed: Any
 
-    x1: Any = reveal_type(identity(number))  # revealed: Any
+    x1: Any = reveal_type(identity(number))  # revealed: int
     reveal_type(x1)  # revealed: Any
 
-    x2: int = reveal_type(identity(dynamic))  # revealed: int
+    x2: int = reveal_type(identity(dynamic))  # revealed: Any
     reveal_type(x2)  # revealed: int
 ```
 
-Otherwise, the inferred solution is preferred, if it is compatible with the declared constraints:
+A wider upper bound likewise leaves the inferred type unchanged:
 
 ```py
 def _(number: int):
@@ -1494,7 +1498,9 @@ def _(number: int):
     reveal_type(x1)  # revealed: int
 ```
 
-The same declared type heuristic applies when inferring the specialization of a generic class:
+The same rule applies to covariant type parameters of generic classes, including unused parameters,
+which are inferred as covariant. In contravariant and invariant positions, we prefer the declared
+type when it is mutually assignable with the inferred type:
 
 ```py
 class UnusedTypeParameter[T]:
@@ -1510,10 +1516,10 @@ def _(dynamic: Any):
     # revealed: UnusedTypeParameter[Literal[1]]
     x1: UnusedTypeParameter[int | None] = reveal_type(unused_type_parameter(1))
 
-    # revealed: UnusedTypeParameter[Any]
+    # revealed: UnusedTypeParameter[Literal[1]]
     x2: UnusedTypeParameter[Any] = reveal_type(unused_type_parameter(1))
 
-    # revealed: UnusedTypeParameter[int]
+    # revealed: UnusedTypeParameter[Any]
     x3: UnusedTypeParameter[int] = reveal_type(unused_type_parameter(dynamic))
 
 class Covariant[T]:
@@ -1530,10 +1536,10 @@ def _(dynamic: Any):
     # revealed: Covariant[Literal[1]]
     x1: Covariant[int | None] = reveal_type(covariant(1))
 
-    # revealed: Covariant[Any]
+    # revealed: Covariant[Literal[1]]
     x2: Covariant[Any] = reveal_type(covariant(1))
 
-    # revealed: Covariant[int]
+    # revealed: Covariant[Any]
     x3: Covariant[int] = reveal_type(covariant(dynamic))
 
 class Contravariant[T]:
@@ -1576,7 +1582,8 @@ def _(dynamic: Any):
     x3: Invariant[int] = reveal_type(invariant(dynamic))
 ```
 
-Note that the heuristic applies independently to each type variable:
+The preference applies independently to each type variable. Here the same `Any` annotation fixes the
+element type of the invariant `list` but only bounds the element type of the covariant `Sequence`:
 
 ```py
 from collections.abc import Sequence
@@ -1586,7 +1593,7 @@ def pair[T, U](first: T, second: U) -> tuple[list[T], list[U]]:
 
 def _(first: int, second: str):
     # revealed: tuple[list[Any], list[str]]
-    result: tuple[Sequence[Any], Sequence[object]] = reveal_type(pair(first, second))
+    result: tuple[list[Any], Sequence[Any]] = reveal_type(pair(first, second))
 ```
 
 This behavior also applies to invariant collection types:
@@ -1652,7 +1659,7 @@ x1: X[None] = reveal_type(X())
 # revealed: X[None]
 x2: X[int | None] = reveal_type(X())
 
-# revealed: X[Any]
+# revealed: X[None]
 x3: X[Any] = reveal_type(X())
 ```
 
@@ -1717,8 +1724,9 @@ def _(a: int | None):
 
 ## Declared type preference sees through subtyping
 
-The same declared type heuristic applies across subtyping relationships. This behavior applies to
-collection literals:
+The variance that matters is the one exposed by the annotation. A list literal keeps its inferred
+element type in a covariant `Sequence` or `Iterable` context, but prefers the declared element type
+in an invariant `MutableSequence` context:
 
 ```py
 import builtins
@@ -1726,18 +1734,15 @@ from collections import defaultdict
 from collections.abc import Mapping
 from typing import Any, Callable, Iterable, Literal, MutableSequence, overload, Sequence
 
-# TODO: This should be `list[Any]`.
 # revealed: list[int]
 x1: Sequence[Any] = reveal_type([1, 2, 3])
 
 # revealed: list[Any]
 x2: MutableSequence[Any] = reveal_type([1, 2, 3])
 
-# TODO: This should be `list[Any]`.
 # revealed: list[int]
 x3: Iterable[Any] = reveal_type([1, 2, 3])
 
-# TODO: This should be `list[list[Any]]`.
 # revealed: list[list[int]]
 x4: Iterable[Iterable[Any]] = reveal_type([[1, 2, 3]])
 
@@ -1747,18 +1752,15 @@ x5: list[Iterable[Any]] = reveal_type([[1, 2, 3]])
 # revealed: list[list[Any]]
 x6: Iterable[list[Any]] = reveal_type([[1, 2, 3]])
 
-# TODO: This should be `list[Any]`.
 # revealed: list[int]
 x7: Sequence[Any] = reveal_type([i for i in [1, 2, 3]])
 
 # revealed: list[Any]
 x8: MutableSequence[Any] = reveal_type([i for i in [1, 2, 3]])
 
-# TODO: This should be `list[Any]`.
 # revealed: list[int]
 x9: Iterable[Any] = reveal_type([i for i in [1, 2, 3]])
 
-# TODO: This should be `list[list[Any]]`.
 # revealed: list[list[int]]
 x10: Iterable[Iterable[Any]] = reveal_type([[i] for i in [1, 2, 3]])
 
@@ -1769,18 +1771,15 @@ x11: list[Iterable[Any]] = reveal_type([[i] for i in [1, 2, 3]])
 x12: Iterable[list[Any]] = reveal_type([[i] for i in [1, 2, 3]])
 
 def _(dynamic: Any):
-    # TODO: This should be `list[int]`.
     # revealed: list[Any]
     x1: Sequence[int] = reveal_type([dynamic])
 
     # revealed: list[int]
     x2: MutableSequence[int] = reveal_type([dynamic])
 
-    # TODO: This should be `list[int]`.
     # revealed: list[Any]
     x3: Iterable[int] = reveal_type([dynamic])
 
-    # TODO: This should be `list[list[int]]`.
     # revealed: list[list[Any]]
     x4: Iterable[Iterable[int]] = reveal_type([[dynamic]])
 
@@ -1819,7 +1818,7 @@ x4: X[object] | None = reveal_type(a(1))
 def f[T](x: T) -> list[list[T]]:
     return [[x]]
 
-# revealed: list[list[Any]]
+# revealed: list[list[int]]
 x5: Sequence[Sequence[Any]] = reveal_type(f(1))
 
 # revealed: list[list[Any]]
@@ -1841,7 +1840,7 @@ def _(dynamic: Any):
     # revealed: A[object]
     x4: X[object] | None = reveal_type(a(dynamic))
 
-    # revealed: list[list[object]]
+    # revealed: list[list[Any]]
     x5: Sequence[Sequence[object]] = reveal_type(f(dynamic))
 
     # revealed: list[list[object]]
@@ -2589,14 +2588,14 @@ conditionally annotated the same field:
 def _(flag: bool, value: Any):
     class Conditional:
         if flag:
-            field: int
+            field: list[int]
 
         def __init__(self):
-            self.field: int = 0
+            self.field: list[int] = []
 
     obj = Conditional()
-    obj.field = identity(value)
-    reveal_type(obj.field)  # revealed: int
+    obj.field = identity([value])
+    reveal_type(obj.field)  # revealed: list[int]
 ```
 
 ## Overload evaluation
@@ -2724,6 +2723,29 @@ def pair(*args: object) -> object:
     raise NotImplementedError
 
 reveal_type(pair([42], ["x"]))  # revealed: tuple[int, str]
+```
+
+## Overloaded calls with a nested identity function
+
+Passing `Any` through `identity` leaves the call ambiguous. The first overload's `int` parameter
+only gives `identity` an upper bound on `T`; it doesn't turn the argument into an `int`.
+
+```py
+from typing import Any, overload
+
+def identity[T](value: T) -> T:
+    return value
+
+@overload
+def parse(value: int) -> int: ...
+@overload
+def parse(value: str) -> str: ...
+def parse(value: int | str) -> int | str:
+    return value
+
+def _(value: Any):
+    reveal_type(parse(value))  # revealed: Unknown
+    reveal_type(parse(identity(value)))  # revealed: Unknown
 ```
 
 ## Class constructor parameters
