@@ -1,7 +1,7 @@
 //! Resolve Ruff settings from inline script metadata (PEP 723).
 
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -44,6 +44,14 @@ pub enum ScriptConfiguration {
 #[derive(Debug)]
 pub struct Script {
     pub settings: Settings,
+    config_path: Option<PathBuf>,
+}
+
+impl Script {
+    /// The script's path for an inline `[tool.ruff]` table, or the inherited configuration path.
+    pub fn config_path(&self) -> Option<&Path> {
+        self.config_path.as_deref()
+    }
 }
 
 /// Resolve settings that depend on the contents of a Python script. An inline
@@ -124,6 +132,7 @@ impl ScriptMetadata {
                 .map_err(config_error)?;
             return Ok(Some(Script {
                 settings: resolve(configuration, &root)?,
+                config_path: path.map(fs::normalize_path),
             }));
         }
 
@@ -136,6 +145,7 @@ impl ScriptMetadata {
         configuration.per_file_target_version = Some(Vec::new());
         Ok(Some(Script {
             settings: resolve(configuration, &project.settings.file_resolver.project_root)?,
+            config_path: project.config_path().map(Path::to_owned),
         }))
     }
 }
