@@ -149,6 +149,15 @@ impl<'a> Resolver<'a> {
         &'a self,
         files: &[&'a Path],
     ) -> FxHashMap<&'a Path, Option<PackageRoot<'a>>> {
+        self.package_roots_with_cache(files).0
+    }
+
+    /// Also return initializer lookups for scripts whose namespace packages differ
+    /// from the configuration used during discovery.
+    pub fn package_roots_with_cache(
+        &'a self,
+        files: &[&'a Path],
+    ) -> (FxHashMap<&'a Path, Option<PackageRoot<'a>>>, InitFiles<'a>) {
         let mut init_files = InitFiles::from_files(files);
 
         // Determine whether any of the settings require namespace packages. If not, we can save
@@ -202,7 +211,13 @@ impl<'a> Resolver<'a> {
             }
         }
 
-        package_roots
+        if !self
+            .settings()
+            .any(|settings| settings.preview.is_enabled())
+        {
+            init_files = InitFiles::default();
+        }
+        (package_roots, init_files)
     }
 
     /// Return an iterator over the resolved [`Settings`] in this [`Resolver`].

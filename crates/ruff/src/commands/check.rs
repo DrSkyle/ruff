@@ -15,6 +15,7 @@ use rustc_hash::FxHashMap;
 
 use ruff_db::panic::catch_unwind;
 use ruff_linter::package::PackageRoot;
+use ruff_linter::packaging::InitFiles;
 use ruff_linter::registry::Rule;
 use ruff_linter::settings::flags;
 use ruff_linter::settings::types::UnsafeFixes;
@@ -63,7 +64,7 @@ pub(crate) fn check(
     }
 
     // Discover the package root for each Python file.
-    let package_roots = resolver.package_roots(
+    let (package_roots, init_files) = resolver.package_roots_with_cache(
         &paths
             .iter()
             .flatten()
@@ -109,6 +110,7 @@ pub(crate) fn check(
                 lint_path(
                     path,
                     package,
+                    &init_files,
                     project,
                     config_arguments,
                     cache,
@@ -199,6 +201,7 @@ pub(crate) fn check(
 fn lint_path(
     path: &Path,
     package: Option<PackageRoot<'_>>,
+    init_files: &InitFiles,
     project: &Project,
     overrides: &ConfigArguments,
     cache: Option<&Cache>,
@@ -210,6 +213,7 @@ fn lint_path(
         crate::diagnostics::lint_path(
             path,
             package,
+            init_files,
             project,
             overrides,
             cache,

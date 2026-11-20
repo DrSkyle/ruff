@@ -31,22 +31,9 @@ fn is_namespace_package(path: &Path, namespace_packages: &[PathBuf]) -> bool {
         .any(|namespace_package| path.starts_with(namespace_package))
 }
 
-/// Return `true` if the directory at the given `Path` appears to be a Python
-/// package.
-fn is_package(path: &Path, namespace_packages: &[PathBuf]) -> bool {
-    is_namespace_package(path, namespace_packages) || path.join("__init__.py").is_file()
-}
-
 /// Return the package root for the given path to a directory with Python file.
 pub fn detect_package_root<'a>(path: &'a Path, namespace_packages: &[PathBuf]) -> Option<&'a Path> {
-    let mut current = None;
-    for parent in path.ancestors() {
-        if !is_package(parent, namespace_packages) {
-            return current;
-        }
-        current = Some(parent);
-    }
-    current
+    InitFiles::default().package_root(path, namespace_packages)
 }
 
 /// Cache whether each directory contains an `__init__.py`. Namespace package membership
@@ -87,6 +74,33 @@ impl<'a> InitFiles<'a> {
             current = Some(parent);
         }
         current
+    }
+
+    /// Reuse initializer lookups from discovery, checking the filesystem for missing entries.
+    pub fn package_root<'p>(
+        &self,
+        path: &'p Path,
+        namespace_packages: &[PathBuf],
+    ) -> Option<&'p Path> {
+        let mut current = None;
+        for parent in path.ancestors() {
+            if !self.is_package(parent, namespace_packages) {
+                return current;
+            }
+            current = Some(parent);
+        }
+        current
+    }
+
+    /// Return `true` if the directory at the given `Path` appears to be a Python
+    /// package.
+    fn is_package(&self, path: &Path, namespace_packages: &[PathBuf]) -> bool {
+        is_namespace_package(path, namespace_packages)
+            || self
+                .0
+                .get(path)
+                .copied()
+                .unwrap_or_else(|| path.join("__init__.py").is_file())
     }
 }
 

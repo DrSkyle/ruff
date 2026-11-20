@@ -515,6 +515,7 @@ mod tests {
     use ruff_cache::CACHE_DIR_NAME;
     use ruff_linter::UnresolvedRuleSelector;
     use ruff_linter::package::PackageRoot;
+    use ruff_linter::packaging::InitFiles;
     use ruff_linter::settings::flags;
     use ruff_linter::settings::types::UnsafeFixes;
     use ruff_python_ast::PySourceType;
@@ -584,6 +585,7 @@ mod tests {
                 let mut diagnostics = lint_path(
                     &path,
                     Some(PackageRoot::root(&package_root)),
+                    &InitFiles::default(),
                     &project,
                     &overrides,
                     Some(&cache),
@@ -634,6 +636,7 @@ mod tests {
             got_diagnostics += lint_path(
                 &path,
                 Some(PackageRoot::root(&package_root)),
+                &InitFiles::default(),
                 &project,
                 &overrides,
                 Some(&cache),
@@ -1073,6 +1076,7 @@ mod tests {
             lint_path(
                 &self.package_root.join(path),
                 Some(PackageRoot::root(&self.package_root)),
+                &InitFiles::default(),
                 &self.project,
                 &ConfigArguments::default(),
                 Some(cache),

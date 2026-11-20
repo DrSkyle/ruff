@@ -14,7 +14,7 @@ use ruff_db::diagnostic::Diagnostic;
 use ruff_linter::codes::Rule;
 use ruff_linter::linter::{FixTable, FixerResult, LinterResult, ParseSource, lint_fix, lint_only};
 use ruff_linter::package::PackageRoot;
-use ruff_linter::packaging::detect_package_root;
+use ruff_linter::packaging::{InitFiles, detect_package_root};
 use ruff_linter::settings::types::UnsafeFixes;
 use ruff_linter::settings::{LinterSettings, flags};
 use ruff_linter::source_kind::{SourceError, SourceKind, SourceKindDiff};
@@ -186,6 +186,7 @@ impl AddAssign for FixMap {
 pub(crate) fn lint_path(
     path: &Path,
     package: Option<PackageRoot<'_>>,
+    init_files: &InitFiles,
     project: &Project,
     overrides: &ConfigArguments,
     cache: Option<&Cache>,
@@ -309,7 +310,7 @@ pub(crate) fn lint_path(
     let settings = script
         .as_ref()
         .map_or(settings, |script| &script.settings.linter);
-    let package = script_package_root(project, path, package, script.as_ref());
+    let package = script_package_root(project, path, package, init_files, script.as_ref());
 
     // Lint the file.
     let (result, transformed, fixed) =
