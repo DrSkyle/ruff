@@ -38,6 +38,8 @@ pub enum ScriptConfiguration {
     Enabled,
     /// Validate script metadata without applying its configuration or Python requirement.
     Disabled,
+    /// Apply only the script's Python requirement, as with editor-only configuration.
+    RequiresPythonOnly,
 }
 
 /// Settings resolved for a single Python file from its inline metadata.
@@ -68,7 +70,7 @@ pub fn script(
     if !is_script_metadata_enabled(project.settings.preview, source_type) {
         return Ok(None);
     }
-    let Some(metadata) = script_metadata(path, source)? else {
+    let Some(metadata) = script_metadata(path, source, script_configuration)? else {
         return Ok(None);
     };
     metadata.resolve(project, overrides, script_configuration, path)
@@ -158,6 +160,7 @@ impl ScriptMetadata {
 pub fn script_metadata(
     path: Option<&Path>,
     source: &str,
+    script_configuration: ScriptConfiguration,
 ) -> Result<Option<ScriptMetadata>, ScriptSettingsError> {
     let Some(tag) = ScriptTag::parse(source) else {
         return Ok(None);
@@ -167,9 +170,13 @@ pub fn script_metadata(
         let span = Span::from(source_file(path, source)).with_optional_range(range);
         ScriptSettingsError::new(span, err.message())
     };
-    let root = toml::de::DeTable::parse(tag.metadata()).map_err(toml_error)?;
-    check_required_version(root.get_ref(), &["tool", "ruff"])
-        .map_err(|err| ScriptSettingsError::configuration(path, &err))?;
+    let mut root = toml::de::DeTable::parse(tag.metadata()).map_err(toml_error)?;
+    if script_configuration != ScriptConfiguration::RequiresPythonOnly {
+        check_required_version(root.get_ref(), &["tool", "ruff"])
+            .map_err(|err| ScriptSettingsError::configuration(path, &err))?;
+    } else {
+        root.get_mut().remove("tool");
+    }
 
     let source = path.map_or(ValueSource::Cli, |path| {
         ValueSource::File(Arc::new(SystemPathBuf::from_path_buf_lossy(
