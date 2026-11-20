@@ -15,6 +15,8 @@ use ruff_db::diagnostic::{
 use ruff_db::system::SystemPathBuf;
 use ruff_linter::fs;
 use ruff_linter::message::RenderContext;
+use ruff_linter::package::PackageRoot;
+use ruff_linter::packaging::detect_package_root;
 use ruff_linter::preview::is_script_metadata_enabled;
 use ruff_python_ast::SourceType;
 use ruff_python_ast::script::ScriptTag;
@@ -62,6 +64,29 @@ pub fn script(
         return Ok(None);
     };
     metadata.resolve(project, overrides, script_configuration, path)
+}
+
+/// Reuse the package root from file discovery unless the script changes which
+/// directories count as namespace packages.
+pub fn script_package_root<'p>(
+    project: &Project,
+    path: &'p Path,
+    package: Option<PackageRoot<'p>>,
+    script: Option<&Script>,
+) -> Option<PackageRoot<'p>> {
+    let Some(script) = script else {
+        return package;
+    };
+    let namespaces = &script.settings.linter.namespace_packages;
+    if *namespaces == project.settings.linter.namespace_packages {
+        return package;
+    }
+    let root = detect_package_root(path.parent()?, namespaces)?;
+    Some(
+        package
+            .filter(|package| package.path() == root)
+            .unwrap_or_else(|| PackageRoot::root(root)),
+    )
 }
 
 /// The inline metadata that can affect Ruff settings.
